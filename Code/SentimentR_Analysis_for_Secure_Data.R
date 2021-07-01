@@ -330,21 +330,6 @@ but here is the most recent information from pinellas county environmental manag
           valence_shifters_dt = updated_valence_shifters,
           question.weight = 0.25)
 
-######
-## Files with tweet activity calculated
-#####
-
-geoweight.df <- NULL
-for (area in all.areas){
-  geoweight.df <- rbind(geoweight.df,
-                        read_csv(paste("https://raw.githubusercontent.com/UsDAnDreS/Florida-Red-Tide-Event/master/Twitter_Scraping/Full%20Archive%20Premium/Stage9_EDA/Weighted_Geo_Counts/WITH_WEIGHTED_GEO_COUNTS_Full_",area, ".csv", sep="")
-                                 ,col_types = cols()
-                        ) %>% mutate(IMPRECISE_LINKS=ifelse(area == "IMPRECISE_LINKS", TRUE, FALSE)))
-  
-}
-
-geoweight.df$ave_sentiment <- full.sentiment.obj.w.periods$ave_sentiment
-geoweight.df$total_sentiment <- full.sentiment.obj.w.periods$total_sentiment
 
 
 #########
@@ -352,7 +337,6 @@ geoweight.df$total_sentiment <- full.sentiment.obj.w.periods$total_sentiment
 #########
 
 all.locations <- unique(full.df$location)
-dir.create("Twitter_Activity_w_Adjustment_for_Followers/")
 
 for (loc in all.locations){
   write.csv(full.df %>% 
@@ -360,11 +344,5 @@ for (loc in all.locations){
                      retweeted_status.created_at = as.character(retweeted_status.created_at)) %>%
               filter(location == loc),
             file=paste("WITH_SENTIMENT_SCORES_Full_", loc, ".csv",sep=""),
-            row.names=F)
-  write.csv(geoweight.df %>% 
-              mutate(created_at = as.character(created_at),
-                     retweeted_status.created_at = as.character(retweeted_status.created_at)) %>%
-              filter(location == loc),
-            file=paste("WITH_WEIGHTED_GEO_COUNTS_and_SENTIMENT_SCORES_Full_", loc, ".csv",sep=""),
             row.names=F)
 }

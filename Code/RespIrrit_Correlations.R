@@ -19,13 +19,13 @@ library(sf)
 ###############################
 
 # Do we want weekly correlations ("1 week")? Daily ("1 day")? Every 3 days ("3 days")?
-time.window <- "3 days"
+time.window <- "1 week"
 # Do we want entire TB surrounding area ("Total")? County-level ("County")? City-level ("City")? ZCTA-level ("ZCTA")?
-locality.lvl <- "Total"
+locality.lvl <- "City"
 # If it's county/city/ZCTA, then do we want per-capita (TRUE)? Or sheer totals (FALSE)?
-per.capita <- T
+per.capita <- F
 # Do we want tweet counts ("Count") or total sentiments ("Sentiment")?
-metric <- "Sentiment"
+metric <- "Count"
 # Do we want to run it for all account types (NULL)? Citizens only ("Citizen")? Media only ("Media")? 
 source.type <-  NULL    # NULL means all tweets are included 
 ## What kind of tweets are we interested in: 
@@ -36,7 +36,7 @@ neg.threshold <- -0.5
 # Location of the twitter data file
 twitter.data.file <- "Florida-Red-Tide-Event/Twitter_Scraping/Full Archive Premium/Secure_Tweets_Data.csv"
 # Location of the county population file
-county.population.file <- "/home/andrey/County_Population_Data.csv"
+county.population.file <- "County_Population_Data.csv"
 # Location of the "smoothed" city metro population file (to avoid overreacting to tiny cities when doing per-capita adjustment, see "Method & Materials" description in the paper)
 city.metro.population.file <- "city.metro.2018.populations.csv"
 # Location of the beach condition data (respiratory irritation and dead fish levels)
@@ -78,6 +78,7 @@ our_metro_df <- read_csv(file=beach.cond.data.file,
                          col_types=cols())
 head(our_metro_df)
 
+our_metro_df$created_at <- as.Date(our_metro_df$created_at)
 
 
 if (locality.lvl == "ZCTA"){
@@ -119,9 +120,9 @@ if (locality.lvl == "ZCTA"){
   # counties <- c("Sarasota County", "Manatee County", "Pinellas County", "Pasco County", "Hillsborough County")
   # our_counties <- zips %>% filter(county %in% counties)
   # our_zcta <- florida_zcta %>% filter(ZCTA5CE10 %in% our_counties$zip)
-   load(our_zcta.file)
+  load(our_zcta.file)
   
-   
+  
   ## ALL ZCTAs
   all.zctas <- sort(our_zcta$ZCTA5CE10)
   
@@ -196,6 +197,7 @@ if (locality.lvl == "ZCTA"){
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
   
+  full.df$created_at <- as.Date(full.df$created_at)
   
   full.df <- full.df %>% filter(geoprofile_match | places_match)
   
@@ -613,6 +615,9 @@ if (locality.lvl == "City"){
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
   
+  full.df$created_at <- as.Date(full.df$created_at)
+  
+  
   full.df <- full.df %>% filter(geoprofile_match | places_match)
   
   
@@ -991,6 +996,8 @@ if (locality.lvl == "County"){
   
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
+  
+  full.df$created_at <- as.Date(full.df$created_at)
   
   
   ## Switching the "metro" names for county names.
@@ -1438,6 +1445,9 @@ if (locality.lvl == "Total"){
   
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
+  
+  full.df$created_at <- as.Date(full.df$created_at)
+  
   
   #################
   ### Creating the MODELING DATA FRAME, piece-by-piece

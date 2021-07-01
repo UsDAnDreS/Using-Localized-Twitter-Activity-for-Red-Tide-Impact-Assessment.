@@ -19,13 +19,13 @@ library(sf)
 ###############################
 
 # Do we want weekly correlations ("1 week")? Daily ("1 day")? Every 3 days ("3 days")?
-time.window <- "1 week"
+time.window <- "1 day"
 # Do we want entire TB surrounding area ("Total")? County-level ("County")? City-level ("City")? ZCTA-level ("ZCTA")?
-locality.lvl <- "Total"
+locality.lvl <- "County"
 # If it's county/city/ZCTA, then do we want per-capita (TRUE)? Or sheer totals (FALSE)?
-per.capita <- F
+per.capita <- T
 # Do we want tweet counts ("Count") or total sentiments ("Sentiment")?
-metric <- "Sentiment"
+metric <- "Count"
 # Do we want to run it for all account types (NULL)? Citizens only ("Citizen")? Media only ("Media")? 
 source.type <-  NULL    # NULL means all tweets are included 
 ## What kind of tweets are we interested in: 
@@ -36,7 +36,7 @@ neg.threshold <- -0.5
 # Location of the twitter data file
 twitter.data.file <- "Florida-Red-Tide-Event/Twitter_Scraping/Full Archive Premium/Secure_Tweets_Data.csv"
 # Location of the county population file
-county.population.file <- "/home/andrey/County_Population_Data.csv"
+county.population.file <- "County_Population_Data.csv"
 # Location of the "smoothed" city metro population file (to avoid overreacting to tiny cities when doing per-capita adjustment, see "Method & Materials" description in the paper)
 city.metro.population.file <- "city.metro.2018.populations.csv"
 # Location of the beach condition data (respiratory irritation and dead fish levels)
@@ -79,6 +79,7 @@ our_metro_df <- read_csv(file=beach.cond.data.file,
                          col_types=cols())
 head(our_metro_df)
 
+our_metro_df$created_at <- as.Date(our_metro_df$created_at)
 
 
 if (locality.lvl == "ZCTA"){
@@ -198,6 +199,9 @@ if (locality.lvl == "ZCTA"){
                       col_types = cols())
   
   
+  full.df$created_at <- as.Date(full.df$created_at)
+  
+  
   full.df <- full.df %>% filter(geoprofile_match | places_match)
   
   
@@ -219,80 +223,80 @@ if (locality.lvl == "ZCTA"){
     ###########################
     ### PER-CAPITA TWEETS #####
     ###########################
-  
+    
     if (metric == "Count"){
       ###################################
       ### FIRST, using TWEET COUNTS.
       ####################################
-  
-  
-  model.df <- timeline_overall %>%
-    select(ZCTA, Date, mean.deadfish_num)
-  
-  tweet.types <- c("places", "geo")
-  
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"),
-             ZCTA = factor(ZCTA, levels=all.zctas))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-    }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
-    
-    timeline_by_metro <- timeline_interm %>% 
-      complete(ZCTA, Date = date.seq) %>%
-      group_by(ZCTA, Date) %>% 
-      summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                     sum(geo_weight, na.rm=T),
-                                     n_distinct(id_str, na.rm=T))) %>%
-      ungroup()
-    
-    
-    ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-    timeline_by_metro_ALL_INCLUDED <- timeline_by_metro %>%
-      group_by(ZCTA, Date) %>%
-      summarise(tweet.count = sum(tweet.count)) %>%
-      ungroup()
-    
-  
-    # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
-    timeline_by_metro_ALL_INCLUDED_PerCapita <- 
-      left_join(timeline_by_metro_ALL_INCLUDED %>% mutate(ZCTA = as.character(ZCTA)),
-                FL.ZCTA.county %>%   # Left-joining with a City-Metro match data set.
-                  left_join(city.metro.population.df,
-                            by =c("primary_city" = "city")) %>%
-                  select(ZCTA5CE10, metro.population) %>%
-                  filter(ZCTA5CE10 %in% all.zctas),
-                by=c("ZCTA" = "ZCTA5CE10")) %>%
-      mutate(tweet.count = 100000*(tweet.count/metro.population)) %>%
-      select(-metro.population)
-    
-    
-    colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    
-    model.df <- model.df %>%
-      left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
-    
-  }
-  
+      
+      
+      model.df <- timeline_overall %>%
+        select(ZCTA, Date, mean.deadfish_num)
+      
+      tweet.types <- c("places", "geo")
+      
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"),
+                 ZCTA = factor(ZCTA, levels=all.zctas))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(ZCTA, Date = date.seq) %>%
+          group_by(ZCTA, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          ungroup()
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- timeline_by_metro %>%
+          group_by(ZCTA, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        
+        # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
+        timeline_by_metro_ALL_INCLUDED_PerCapita <- 
+          left_join(timeline_by_metro_ALL_INCLUDED %>% mutate(ZCTA = as.character(ZCTA)),
+                    FL.ZCTA.county %>%   # Left-joining with a City-Metro match data set.
+                      left_join(city.metro.population.df,
+                                by =c("primary_city" = "city")) %>%
+                      select(ZCTA5CE10, metro.population) %>%
+                      filter(ZCTA5CE10 %in% all.zctas),
+                    by=c("ZCTA" = "ZCTA5CE10")) %>%
+          mutate(tweet.count = 100000*(tweet.count/metro.population)) %>%
+          select(-metro.population)
+        
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
+        
+      }
+      
     }
     
     if (metric == "Sentiment"){
@@ -368,52 +372,52 @@ if (locality.lvl == "ZCTA"){
     #############################################   
     if (metric == "Count"){
       
-    for (tweet.type in tweet.types){
-      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-      
-      ## If ONLY NEGATIVE ones needed
-      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-      dim(our.df)
-      
-      ## ONLY CITIZENS??
-      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-      
-      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-        mutate(created_at = floor_date(created_at, unit="1 day"),
-               ZCTA = factor(ZCTA, levels=all.zctas))
-      
-      new.dates <- NULL
-      for (j in 1:length(timeline_interm$created_at)){
-        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"),
+                 ZCTA = factor(ZCTA, levels=all.zctas))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(ZCTA, Date = date.seq) %>%
+          group_by(ZCTA, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          ungroup()
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- timeline_by_metro %>%
+          group_by(ZCTA, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED %>% mutate(ZCTA = as.character(ZCTA)))
+        
       }
-      new.dates <- as.Date(new.dates)
-      timeline_interm$Date <- new.dates
-      
-      timeline_by_metro <- timeline_interm %>% 
-        complete(ZCTA, Date = date.seq) %>%
-        group_by(ZCTA, Date) %>% 
-        summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                       sum(geo_weight, na.rm=T),
-                                       n_distinct(id_str, na.rm=T))) %>%
-        ungroup()
-      
-      ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-      timeline_by_metro_ALL_INCLUDED <- timeline_by_metro %>%
-        group_by(ZCTA, Date) %>%
-        summarise(tweet.count = sum(tweet.count)) %>%
-        ungroup()
-      
-
-      colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-      
-      
-      model.df <- model.df %>%
-        left_join(timeline_by_metro_ALL_INCLUDED %>% mutate(ZCTA = as.character(ZCTA)))
-      
-    }
     }
     
     if (metric == "Sentiment"){
@@ -469,7 +473,7 @@ if (locality.lvl == "ZCTA"){
   
   ### CONCURRENT correlations:
   concur.corr <- round(model.df %>% select(-ZCTA, -Date) %>% cor(use="complete.obs") %>% .[1,],2) %>% .[c(2,3)]
-
+  
   ## POST-FACTUM correlations (correlation of tweets with PREVIOUS TIME PERIOD's dead fish levels)
   postfactum.corr <- model.df %>%
     group_by(ZCTA) %>%
@@ -507,7 +511,7 @@ if (locality.lvl == "City"){
   load(list.FL.ZCTA.county.Robj.file)
   load(list.beach.ZCTA.Robj.file)
   
-
+  
   affected_ZCTA_df <- NULL
   
   ## Filling it out for ZCTAs associated with one of 12 beaches we got.
@@ -612,6 +616,9 @@ if (locality.lvl == "City"){
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
   
+  full.df$created_at <- as.Date(full.df$created_at)
+  
+  
   full.df <- full.df %>% filter(geoprofile_match | places_match)
   
   
@@ -635,75 +642,75 @@ if (locality.lvl == "City"){
     ###########################
     if (metric == "Count"){
       
-  
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    ## Adding the CITIES CLOSEST TO THIS ZCTA 
-    ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
-    our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
-      left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
-                by=c("ZCTA" = "ZCTA5CE10"))
-    
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-    }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
-    
-    timeline_by_primary_city <- timeline_interm %>% 
-      complete(primary_city, Date = date.seq) %>%
-      group_by(primary_city, Date) %>% 
-      summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                     sum(geo_weight, na.rm=T),
-                                     n_distinct(id_str, na.rm=T))) %>%
-      ungroup()
-    
-    
-    ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-    timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
-      group_by(primary_city, Date) %>%
-      summarise(tweet.count = sum(tweet.count)) %>%
-      ungroup()
-    
-    
-    # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
-    timeline_by_primary_city_ALL_INCLUDED_PerCapita <- 
-      left_join(timeline_by_primary_city_ALL_INCLUDED,
-                city.metro.population.df %>%   # Left-joining with a City-Metro match data set.
-                  full_join(FL.ZCTA.county %>% group_by(primary_city) %>% count(metro) %>% summarise(metro=names(which.max(table(metro)))),
-                            by =c("city" = "primary_city")) %>%
-                  select(city, metro.population) %>%
-                  filter(city %in% all.cities),
-                by=c("primary_city" = "city")) %>%
-      mutate(tweet.count = 100000*(tweet.count/metro.population)) %>%
-      select(-metro.population)
-    
-    colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    colnames(timeline_by_primary_city_ALL_INCLUDED_PerCapita)[colnames(timeline_by_primary_city_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    
-    model.df <- model.df %>%
-      left_join(timeline_by_primary_city_ALL_INCLUDED_PerCapita)
-    
-    
-  }
-  
+      
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        ## Adding the CITIES CLOSEST TO THIS ZCTA 
+        ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
+        our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
+          left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
+                    by=c("ZCTA" = "ZCTA5CE10"))
+        
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_primary_city <- timeline_interm %>% 
+          complete(primary_city, Date = date.seq) %>%
+          group_by(primary_city, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          ungroup()
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
+          group_by(primary_city, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        
+        # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
+        timeline_by_primary_city_ALL_INCLUDED_PerCapita <- 
+          left_join(timeline_by_primary_city_ALL_INCLUDED,
+                    city.metro.population.df %>%   # Left-joining with a City-Metro match data set.
+                      full_join(FL.ZCTA.county %>% group_by(primary_city) %>% count(metro) %>% summarise(metro=names(which.max(table(metro)))),
+                                by =c("city" = "primary_city")) %>%
+                      select(city, metro.population) %>%
+                      filter(city %in% all.cities),
+                    by=c("primary_city" = "city")) %>%
+          mutate(tweet.count = 100000*(tweet.count/metro.population)) %>%
+          select(-metro.population)
+        
+        colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        colnames(timeline_by_primary_city_ALL_INCLUDED_PerCapita)[colnames(timeline_by_primary_city_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_primary_city_ALL_INCLUDED_PerCapita)
+        
+        
+      }
+      
     }
     
     if (metric == "Sentiment"){
@@ -778,627 +785,630 @@ if (locality.lvl == "City"){
   }
   
   
- if (!per.capita){
-   if (metric == "Count"){
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    ## Adding the CITIES CLOSEST TO THIS ZCTA 
-    ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
-    our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
-      left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
-                by=c("ZCTA" = "ZCTA5CE10"))
-    
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+  if (!per.capita){
+    if (metric == "Count"){
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        ## Adding the CITIES CLOSEST TO THIS ZCTA 
+        ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
+        our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
+          left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
+                    by=c("ZCTA" = "ZCTA5CE10"))
+        
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_primary_city <- timeline_interm %>% 
+          complete(primary_city, Date = date.seq) %>%
+          group_by(primary_city, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          ungroup()
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
+          group_by(primary_city, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_primary_city_ALL_INCLUDED)
+        
+      }
+      
     }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
     
-    timeline_by_primary_city <- timeline_interm %>% 
-      complete(primary_city, Date = date.seq) %>%
-      group_by(primary_city, Date) %>% 
-      summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                     sum(geo_weight, na.rm=T),
-                                     n_distinct(id_str, na.rm=T))) %>%
-      ungroup()
-    
-    
-    ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-    timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
-      group_by(primary_city, Date) %>%
-      summarise(tweet.count = sum(tweet.count)) %>%
-      ungroup()
-    
-    colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    model.df <- model.df %>%
-      left_join(timeline_by_primary_city_ALL_INCLUDED)
-    
-  }
-  
-   }
-   
-   if (metric == "Sentiment"){
-  
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    
-    ## Adding the CITIES CLOSEST TO THIS ZCTA 
-    ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
-    our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
-      left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
-                by=c("ZCTA" = "ZCTA5CE10"))
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+    if (metric == "Sentiment"){
+      
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        
+        ## Adding the CITIES CLOSEST TO THIS ZCTA 
+        ## (will double/triple-count some tweets when sharing a credit for a single ZCTA)
+        our.df <- our.df %>% mutate(ZCTA = as.character(ZCTA)) %>%
+          left_join(FL.ZCTA.county %>% select(ZCTA5CE10, primary_city), 
+                    by=c("ZCTA" = "ZCTA5CE10"))
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_primary_city <- timeline_interm %>% 
+          complete(primary_city, Date = date.seq) %>%
+          group_by(primary_city, Date) %>% 
+          summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+          ungroup()
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by primary_city
+        timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
+          group_by(primary_city, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_primary_city_ALL_INCLUDED)
+        
+        
+      }
     }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
-    
-    timeline_by_primary_city <- timeline_interm %>% 
-      complete(primary_city, Date = date.seq) %>%
-      group_by(primary_city, Date) %>% 
-      summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-      ungroup()
-    
-    
-    ## Combining the extra credit due to TB/Pinellas, with the initial timeline by primary_city
-    timeline_by_primary_city_ALL_INCLUDED <- timeline_by_primary_city %>%
-      group_by(primary_city, Date) %>%
-      summarise(tweet.count = sum(tweet.count)) %>%
-      ungroup()
-    
-    colnames(timeline_by_primary_city_ALL_INCLUDED)[colnames(timeline_by_primary_city_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    model.df <- model.df %>%
-      left_join(timeline_by_primary_city_ALL_INCLUDED)
-    
-    
   }
-  }
-}
   
-## Making sure "NA" are treated as 0 (days with no tweet matches)
-model.df <- model.df %>%
-  mutate_if(str_detect(colnames(model.df), "tweet.count"), function(x) ifelse(is.na(x),0,x))
-
-
-
-head(model.df)
-dim(model.df)
-
-
-## Calculating total tweet counts for each primary_city
-tweet.count.cities <- model.df %>% 
-  group_by(primary_city) %>%
-  summarise(place.counts=sum(tweet.count.places),
-            geo.counts=sum(tweet.count.geo)) 
-
-
-
-### CONCURRENT BY-METRO correlations:
-concur.corr <- round(model.df %>% select(-primary_city, -Date) %>% cor(use="complete.obs") %>% .[1,],2) %>% .[c(2,3)]
-
-
-## POST-FACTUM BY-METRO correlations (correlation of tweets with PREVIOUS TIME PERIOD's Deadfish Levels data)
-postfactum.corr <- model.df %>%
-  group_by(primary_city) %>%
-  mutate(mean.deadfish_num.lag = lag(mean.deadfish_num, n=1)) %>%
-  ungroup() %>%
-  select(-primary_city, -Date) %>%
-  cor(use="complete.obs") %>% .[,"mean.deadfish_num.lag"] %>% round(2) %>% .[c(2,3)]
-
-
-## ANTICIPATORY BY-METRO correlations (correlation of tweets with NEXT TIME PERIOD's Deadfish Levels data)
-anticip.corr <- model.df %>%
-  group_by(primary_city) %>%
-  mutate(mean.deadfish_num.lead= lead(mean.deadfish_num, n=1)) %>%
-  ungroup() %>%
-  select(-primary_city, -Date) %>%
-  cor(use="complete.obs") %>% .[,"mean.deadfish_num.lead"] %>% round(2) %>% .[c(2,3)]
-
-
+  ## Making sure "NA" are treated as 0 (days with no tweet matches)
+  model.df <- model.df %>%
+    mutate_if(str_detect(colnames(model.df), "tweet.count"), function(x) ifelse(is.na(x),0,x))
+  
+  
+  
+  head(model.df)
+  dim(model.df)
+  
+  
+  ## Calculating total tweet counts for each primary_city
+  tweet.count.cities <- model.df %>% 
+    group_by(primary_city) %>%
+    summarise(place.counts=sum(tweet.count.places),
+              geo.counts=sum(tweet.count.geo)) 
+  
+  
+  
+  ### CONCURRENT BY-METRO correlations:
+  concur.corr <- round(model.df %>% select(-primary_city, -Date) %>% cor(use="complete.obs") %>% .[1,],2) %>% .[c(2,3)]
+  
+  
+  ## POST-FACTUM BY-METRO correlations (correlation of tweets with PREVIOUS TIME PERIOD's Deadfish Levels data)
+  postfactum.corr <- model.df %>%
+    group_by(primary_city) %>%
+    mutate(mean.deadfish_num.lag = lag(mean.deadfish_num, n=1)) %>%
+    ungroup() %>%
+    select(-primary_city, -Date) %>%
+    cor(use="complete.obs") %>% .[,"mean.deadfish_num.lag"] %>% round(2) %>% .[c(2,3)]
+  
+  
+  ## ANTICIPATORY BY-METRO correlations (correlation of tweets with NEXT TIME PERIOD's Deadfish Levels data)
+  anticip.corr <- model.df %>%
+    group_by(primary_city) %>%
+    mutate(mean.deadfish_num.lead= lead(mean.deadfish_num, n=1)) %>%
+    ungroup() %>%
+    select(-primary_city, -Date) %>%
+    cor(use="complete.obs") %>% .[,"mean.deadfish_num.lead"] %>% round(2) %>% .[c(2,3)]
+  
+  
 }
 
 
 if (locality.lvl == "County"){
-
-## Switching the "metro" names for county names.
-for (j in 1:length(all.metros)){
-  our_metro_df$location[our_metro_df$location == all.metros[j]] <- all.counties.to.metros[j]
-}
-head(our_metro_df)
-
-
-
-date.from <- as.Date("2018-05-01")
-date.to <- as.Date("2019-05-01")
-
-## Getting the time series summaries of Deadfish Levels  over a year-long period.
-## Breaking them up by metro areas.
-
-timeline_overall <- our_metro_df %>%
-  filter(created_at >= date.from & created_at <= date.to) %>%
-  mutate(created_at = floor_date(created_at,  unit="1 day"))
-
-## Making sure we have a common grid of time periods (with 1-day, 3-day, 7-day jumps)
-date.seq <- seq(date.from, date.to, by=time.window)
-new.dates <- NULL
-for (j in 1:length(timeline_overall$created_at)){
-  new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - timeline_overall$created_at[j]))]))
-}
-new.dates <- as.Date(new.dates)
-
-timeline_overall$Date <- new.dates
-###
-
-timeline_overall <- timeline_overall %>%
-  mutate(location = factor(location, levels=all.counties)) %>%
-  #complete(location, Date, fill=list(deadfish_num=0)) %>%
-  complete(location=all.counties, Date = date.seq, fill=list(deadfish_num=0)) %>%
-  group_by(location, Date) %>% 
-  summarise(median.deadfish_num = median(deadfish_num),
-            max.deadfish_num = max(deadfish_num),
-            mean.deadfish_num = mean(deadfish_num),
-            sum.deadfish_num = sum(deadfish_num),
-            n.of.points = n()) %>%
-  mutate(type = "1. Deadfish Levels",
-         location = factor(location, levels=all.counties)) %>%
-  ungroup()
-
-
-
-##########
-## Getting Tweet data
-##########
-
-all.areas <- c("Pasco", "Tampa", "Clearwater", "StPete", "Bradenton", "Sarasota",
-               "TampaBay", "Pinellas")
-line.size <- 1.2
-
-
-full.df <- read_csv(twitter.data.file,
-                    col_types = cols())
-
-
-## Switching the "metro" names for county names.
-for (j in 1:length(all.metros)){
-  full.df$location[full.df$location == all.metros[j]] <- all.counties.to.metros[j]
-}
-head(full.df)
-
-
-#################
-### Creating the MODELING DATA FRAME, piece-by-piece
-##  First, initializing it with beach conditions data, 
-##  then adding the tweet counts/sentiments
-#################
-
-model.df <- timeline_overall %>%
-  select(location, Date, mean.deadfish_num)
-
-tweet.types <- c("places",  "geo")
-
-
-if (per.capita){
-###########################
-### PER-CAPITA TWEETS #####
-###########################
-
-  if (metric == "Count"){
-    ###################################
-    ### FIRST, using TWEET COUNTS.
-    ####################################
-
-for (tweet.type in tweet.types){
-  if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-  if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-  if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
   
-  ## If ONLY NEGATIVE ones needed
-  if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-  if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-  dim(our.df)
+  ## Switching the "metro" names for county names.
+  for (j in 1:length(all.metros)){
+    our_metro_df$location[our_metro_df$location == all.metros[j]] <- all.counties.to.metros[j]
+  }
+  head(our_metro_df)
   
-  ## ONLY CITIZENS??
-  if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
   
-  timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-    mutate(created_at = floor_date(created_at, unit="1 day"))
   
+  date.from <- as.Date("2018-05-01")
+  date.to <- as.Date("2019-05-01")
+  
+  ## Getting the time series summaries of Deadfish Levels  over a year-long period.
+  ## Breaking them up by metro areas.
+  
+  timeline_overall <- our_metro_df %>%
+    filter(created_at >= date.from & created_at <= date.to) %>%
+    mutate(created_at = floor_date(created_at,  unit="1 day"))
+  
+  ## Making sure we have a common grid of time periods (with 1-day, 3-day, 7-day jumps)
+  date.seq <- seq(date.from, date.to, by=time.window)
   new.dates <- NULL
-  for (j in 1:length(timeline_interm$created_at)){
-    new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+  for (j in 1:length(timeline_overall$created_at)){
+    new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - timeline_overall$created_at[j]))]))
   }
   new.dates <- as.Date(new.dates)
-  timeline_interm$Date <- new.dates
   
-  timeline_by_metro <- timeline_interm %>% 
-    complete(location=all.counties, Date = date.seq) %>%
+  timeline_overall$Date <- new.dates
+  ###
+  
+  timeline_overall <- timeline_overall %>%
+    mutate(location = factor(location, levels=all.counties)) %>%
+    #complete(location, Date, fill=list(deadfish_num=0)) %>%
+    complete(location=all.counties, Date = date.seq, fill=list(deadfish_num=0)) %>%
     group_by(location, Date) %>% 
-    summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                   sum(geo_weight, na.rm=T),
-                                   n_distinct(id_str, na.rm=T))) %>%
-    filter(!(location %in% c("TampaBay"))) %>%
+    summarise(median.deadfish_num = median(deadfish_num),
+              max.deadfish_num = max(deadfish_num),
+              mean.deadfish_num = mean(deadfish_num),
+              sum.deadfish_num = sum(deadfish_num),
+              n.of.points = n()) %>%
+    mutate(type = "1. Deadfish Levels",
+           location = factor(location, levels=all.counties)) %>%
     ungroup()
   
   
-  timeline_by_area_TB_Pinellas <- timeline_interm %>% 
-    complete(location=all.counties, Date = date.seq) %>%
-    group_by(location, Date) %>% 
-    summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                   sum(geo_weight, na.rm=T),
-                                   n_distinct(id_str, na.rm=T))) %>%
-    filter(location %in% c("TampaBay")) %>%
-    ungroup()
+  
+  ##########
+  ## Getting Tweet data
+  ##########
+  
+  all.areas <- c("Pasco", "Tampa", "Clearwater", "StPete", "Bradenton", "Sarasota",
+                 "TampaBay", "Pinellas")
+  line.size <- 1.2
   
   
-  ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
-  timeline_by_metro_TB_Pinellas <- NULL
+  full.df <- read_csv(twitter.data.file,
+                      col_types = cols())
   
-  if (nrow(timeline_by_area_TB_Pinellas)>0){
-    for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
-      cur.row <- timeline_by_area_TB_Pinellas[j,]
-      if (cur.row$location == "TampaBay"){
-        timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
-                                               tibble(location=c("Hillsborough", "Pinellas"), 
-                                                      Date=c(cur.row$Date, cur.row$Date), 
-                                                      tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough","Pinellas")]*cur.row$tweet.count))
-      }
-    }
+  full.df$created_at <- as.Date(full.df$created_at)
+  
+  
+  
+  ## Switching the "metro" names for county names.
+  for (j in 1:length(all.metros)){
+    full.df$location[full.df$location == all.metros[j]] <- all.counties.to.metros[j]
   }
+  head(full.df)
   
   
-  ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-  timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
-                                          timeline_by_metro_TB_Pinellas) %>%
-    group_by(location, Date) %>%
-    summarise(tweet.count = sum(tweet.count)) %>%
-    ungroup()
+  #################
+  ### Creating the MODELING DATA FRAME, piece-by-piece
+  ##  First, initializing it with beach conditions data, 
+  ##  then adding the tweet counts/sentiments
+  #################
+  
+  model.df <- timeline_overall %>%
+    select(location, Date, mean.deadfish_num)
+  
+  tweet.types <- c("places",  "geo")
   
   
-  # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
-  timeline_by_metro_ALL_INCLUDED_PerCapita <- 
-    left_join(timeline_by_metro_ALL_INCLUDED,
-              TB.Pinellas.credit.df %>% select(location, Eligible.population),
-              by=c("location")) %>%
-    mutate(tweet.count = 100000*(tweet.count/Eligible.population)) %>%
-    select(-Eligible.population)
-  
-  colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-  colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-  
-  
-  model.df <- model.df %>%
-    left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
-  
-  
-}
-  }
-  
-  if (metric == "Sentiment"){
+  if (per.capita){
+    ###########################
+    ### PER-CAPITA TWEETS #####
+    ###########################
     
-    for (tweet.type in tweet.types){
-      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+    if (metric == "Count"){
+      ###################################
+      ### FIRST, using TWEET COUNTS.
+      ####################################
       
-      ## If ONLY NEGATIVE ones needed
-      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-      dim(our.df)
-      
-      ## ONLY CITIZENS??
-      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-      
-      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-        mutate(created_at = floor_date(created_at, unit="1 day"))
-      
-      new.dates <- NULL
-      for (j in 1:length(timeline_interm$created_at)){
-        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-      }
-      new.dates <- as.Date(new.dates)
-      timeline_interm$Date <- new.dates
-      
-      
-      
-      timeline_by_metro <- timeline_interm %>% 
-        complete(location=all.counties, Date=date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-        filter(!(location %in% c("TampaBay"))) %>%
-        ungroup()
-      
-      
-      timeline_by_area_TB_Pinellas <- timeline_interm %>% 
-        complete(location=all.counties, Date=date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-        filter(location %in% c("TampaBay")) %>%
-        ungroup()
-      
- 
-      
-      ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
-      timeline_by_metro_TB_Pinellas <- NULL
-      if (nrow(timeline_by_area_TB_Pinellas)>0){
-        for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
-          cur.row <- timeline_by_area_TB_Pinellas[j,]
-          if (cur.row$location == "TampaBay"){
-            timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
-                                                   tibble(location=c("Hillsborough", "Pinellas"), 
-                                                          Date=c(cur.row$Date,cur.row$Date), 
-                                                          tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough", "Pinellas")]*cur.row$tweet.count))
-            }                                               
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
         }
-      }
-      
-      
-      ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-      timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
-                                              timeline_by_metro_TB_Pinellas) %>%
-        group_by(location, Date) %>%
-        summarise(tweet.count = sum(tweet.count))
-      
-      
-      # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
-      timeline_by_metro_ALL_INCLUDED_PerCapita <- 
-        left_join(timeline_by_metro_ALL_INCLUDED,
-                  TB.Pinellas.credit.df %>% select(location, Eligible.population),
-                  by=c("location")) %>%
-        mutate(tweet.count = 100000*(tweet.count/Eligible.population)) %>%
-        select(-Eligible.population)
-      
-      colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-      colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-      
-      model.df <- model.df %>%
-        left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
-      
-    }
-    
-    
-    
-  }
-
-}
-
-
-if (!per.capita){
-  #############################################
-  ### SHEER TWEET COUNTS (NOT PER-CAPITA) #####
-  #############################################
-  
-  if (metric == "Count"){
-    for (tweet.type in tweet.types){
-      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-      
-      ## If ONLY NEGATIVE ones needed
-      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-      dim(our.df)
-      
-      ## ONLY CITIZENS??
-      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-      
-      
-      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-        mutate(created_at = floor_date(created_at, unit="1 day"))
-      
-      new.dates <- NULL
-      for (j in 1:length(timeline_interm$created_at)){
-        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-      }
-      new.dates <- as.Date(new.dates)
-      timeline_interm$Date <- new.dates
-      
-      timeline_by_metro <- timeline_interm %>% 
-        complete(location=all.counties, Date = date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                       sum(geo_weight, na.rm=T),
-                                       n_distinct(id_str, na.rm=T))) %>%
-        filter(!(location %in% c("TampaBay"))) %>%
-        ungroup()
-      
-      
-      timeline_by_area_TB_Pinellas <- timeline_interm %>% 
-        complete(location=all.counties, Date = date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                       sum(geo_weight, na.rm=T),
-                                       n_distinct(id_str, na.rm=T))) %>%
-        filter(location %in% c("TampaBay")) %>%
-        ungroup()
-      
-      
-      ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
-      timeline_by_metro_TB_Pinellas <- NULL
-      
-      if (nrow(timeline_by_area_TB_Pinellas)>0){
-        for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
-          cur.row <- timeline_by_area_TB_Pinellas[j,]
-          if (cur.row$location == "TampaBay"){
-            timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
-                                                   tibble(location=c("Hillsborough", "Pinellas"), 
-                                                          Date=c(cur.row$Date, cur.row$Date), 
-                                                          tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough","Pinellas")]*cur.row$tweet.count))
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(location=all.counties, Date = date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          filter(!(location %in% c("TampaBay"))) %>%
+          ungroup()
+        
+        
+        timeline_by_area_TB_Pinellas <- timeline_interm %>% 
+          complete(location=all.counties, Date = date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          filter(location %in% c("TampaBay")) %>%
+          ungroup()
+        
+        
+        ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
+        timeline_by_metro_TB_Pinellas <- NULL
+        
+        if (nrow(timeline_by_area_TB_Pinellas)>0){
+          for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
+            cur.row <- timeline_by_area_TB_Pinellas[j,]
+            if (cur.row$location == "TampaBay"){
+              timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
+                                                     tibble(location=c("Hillsborough", "Pinellas"), 
+                                                            Date=c(cur.row$Date, cur.row$Date), 
+                                                            tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough","Pinellas")]*cur.row$tweet.count))
+            }
           }
         }
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
+                                                timeline_by_metro_TB_Pinellas) %>%
+          group_by(location, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        
+        # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
+        timeline_by_metro_ALL_INCLUDED_PerCapita <- 
+          left_join(timeline_by_metro_ALL_INCLUDED,
+                    TB.Pinellas.credit.df %>% select(location, Eligible.population),
+                    by=c("location")) %>%
+          mutate(tweet.count = 100000*(tweet.count/Eligible.population)) %>%
+          select(-Eligible.population)
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
+        
+        
       }
-      
-      
-      ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-      timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
-                                              timeline_by_metro_TB_Pinellas) %>%
-        group_by(location, Date) %>%
-        summarise(tweet.count = sum(tweet.count)) %>%
-        ungroup()
-      
-      colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-      
-      
-      model.df <- model.df %>%
-        left_join(timeline_by_metro_ALL_INCLUDED)
-      
     }
     
-  }
-  if (metric == "Sentiment"){
-    
-    for (tweet.type in tweet.types){
-      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+    if (metric == "Sentiment"){
       
-      ## If ONLY NEGATIVE ones needed
-      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-      dim(our.df)
-      
-      ## ONLY CITIZENS??
-      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
- 
-      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-        mutate(created_at = floor_date(created_at, unit="1 day"))
-      
-      new.dates <- NULL
-      for (j in 1:length(timeline_interm$created_at)){
-        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-      }
-      new.dates <- as.Date(new.dates)
-      timeline_interm$Date <- new.dates
-      
-      
-      
-      timeline_by_metro <- timeline_interm %>% 
-        complete(location=all.counties, Date=date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-        filter(!(location %in% c("TampaBay"))) %>%
-        ungroup()
-      
-      
-      timeline_by_area_TB_Pinellas <- timeline_interm %>% 
-        complete(location=all.counties, Date=date.seq) %>%
-        group_by(location, Date) %>% 
-        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-        filter(location %in% c("TampaBay")) %>%
-        ungroup()
-      
-      
-      
-      
-      
-      ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
-      timeline_by_metro_TB_Pinellas <- NULL
-      if (nrow(timeline_by_area_TB_Pinellas)>0){
-        for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
-          cur.row <- timeline_by_area_TB_Pinellas[j,]
-          if (cur.row$location == "TampaBay"){
-            timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
-                                                   tibble(location=c("Hillsborough", "Pinellas"), 
-                                                          Date=c(cur.row$Date,cur.row$Date), 
-                                                          tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough", "Pinellas")]*cur.row$tweet.count))
-          }                                               
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
         }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(location=all.counties, Date=date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+          filter(!(location %in% c("TampaBay"))) %>%
+          ungroup()
+        
+        
+        timeline_by_area_TB_Pinellas <- timeline_interm %>% 
+          complete(location=all.counties, Date=date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+          filter(location %in% c("TampaBay")) %>%
+          ungroup()
+        
+        
+        
+        ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
+        timeline_by_metro_TB_Pinellas <- NULL
+        if (nrow(timeline_by_area_TB_Pinellas)>0){
+          for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
+            cur.row <- timeline_by_area_TB_Pinellas[j,]
+            if (cur.row$location == "TampaBay"){
+              timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
+                                                     tibble(location=c("Hillsborough", "Pinellas"), 
+                                                            Date=c(cur.row$Date,cur.row$Date), 
+                                                            tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough", "Pinellas")]*cur.row$tweet.count))
+            }                                               
+          }
+        }
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
+                                                timeline_by_metro_TB_Pinellas) %>%
+          group_by(location, Date) %>%
+          summarise(tweet.count = sum(tweet.count))
+        
+        
+        # NORMALIZING BY THE "ELIGIBLE" POPULATION OF METRO AREA
+        timeline_by_metro_ALL_INCLUDED_PerCapita <- 
+          left_join(timeline_by_metro_ALL_INCLUDED,
+                    TB.Pinellas.credit.df %>% select(location, Eligible.population),
+                    by=c("location")) %>%
+          mutate(tweet.count = 100000*(tweet.count/Eligible.population)) %>%
+          select(-Eligible.population)
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        colnames(timeline_by_metro_ALL_INCLUDED_PerCapita)[colnames(timeline_by_metro_ALL_INCLUDED_PerCapita) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED_PerCapita)
+        
       }
       
-      
-      ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-      timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
-                                              timeline_by_metro_TB_Pinellas) %>%
-        group_by(location, Date) %>%
-        summarise(tweet.count = sum(tweet.count))
-      
-      
-      colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-      
-      
-      model.df <- model.df %>%
-        left_join(timeline_by_metro_ALL_INCLUDED)
       
       
     }
     
   }
-}
-
-
-
-## Making sure "NA" are treated as 0 (days with no tweet matches)
-model.df <- model.df %>%
-  mutate_if(str_detect(colnames(model.df), "tweet.count"), function(x) ifelse(is.na(x),0,x))
-
-
-
-head(model.df)
-dim(model.df)
-
-
-
-### CONCURRENT BY-METRO correlations:
-concur.corr <- round(model.df %>% select(-location, -Date) %>% cor(use="complete.obs") %>% .[1,],2) %>% .[c(2,3)]
-
-
-## POST-FACTUM BY-METRO correlations (correlation of tweets with PREVIOUS TIME PERIOD's Deadfish Levels data)
-postfactum.corr <- model.df %>%
-  group_by(location) %>%
-  mutate(mean.deadfish_num.lag = lag(mean.deadfish_num, n=1)) %>%
-  ungroup() %>%
-  select(-location, -Date) %>%
-  cor(use="complete.obs") %>% .[,"mean.deadfish_num.lag"] %>% round(2) %>% .[c(2,3)]
-
-
-## ANTICIPATORY BY-METRO correlations (correlation of tweets with NEXT TIME PERIOD's Deadfish Levels data)
-anticip.corr <- model.df %>%
-  group_by(location) %>%
-  mutate(mean.deadfish_num.lead= lead(mean.deadfish_num, n=1)) %>%
-  ungroup() %>%
-  select(-location, -Date) %>%
-  cor(use="complete.obs") %>% .[,"mean.deadfish_num.lead"] %>% round(2) %>% .[c(2,3)]
-
+  
+  
+  if (!per.capita){
+    #############################################
+    ### SHEER TWEET COUNTS (NOT PER-CAPITA) #####
+    #############################################
+    
+    if (metric == "Count"){
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(location=all.counties, Date = date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          filter(!(location %in% c("TampaBay"))) %>%
+          ungroup()
+        
+        
+        timeline_by_area_TB_Pinellas <- timeline_interm %>% 
+          complete(location=all.counties, Date = date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                         sum(geo_weight, na.rm=T),
+                                         n_distinct(id_str, na.rm=T))) %>%
+          filter(location %in% c("TampaBay")) %>%
+          ungroup()
+        
+        
+        ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
+        timeline_by_metro_TB_Pinellas <- NULL
+        
+        if (nrow(timeline_by_area_TB_Pinellas)>0){
+          for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
+            cur.row <- timeline_by_area_TB_Pinellas[j,]
+            if (cur.row$location == "TampaBay"){
+              timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
+                                                     tibble(location=c("Hillsborough", "Pinellas"), 
+                                                            Date=c(cur.row$Date, cur.row$Date), 
+                                                            tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough","Pinellas")]*cur.row$tweet.count))
+            }
+          }
+        }
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
+                                                timeline_by_metro_TB_Pinellas) %>%
+          group_by(location, Date) %>%
+          summarise(tweet.count = sum(tweet.count)) %>%
+          ungroup()
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED)
+        
+      }
+      
+    }
+    if (metric == "Sentiment"){
+      
+      for (tweet.type in tweet.types){
+        if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+        if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+        if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+        
+        ## If ONLY NEGATIVE ones needed
+        if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+        if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+        dim(our.df)
+        
+        ## ONLY CITIZENS??
+        if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+        
+        timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+          mutate(created_at = floor_date(created_at, unit="1 day"))
+        
+        new.dates <- NULL
+        for (j in 1:length(timeline_interm$created_at)){
+          new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+        }
+        new.dates <- as.Date(new.dates)
+        timeline_interm$Date <- new.dates
+        
+        
+        
+        timeline_by_metro <- timeline_interm %>% 
+          complete(location=all.counties, Date=date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+          filter(!(location %in% c("TampaBay"))) %>%
+          ungroup()
+        
+        
+        timeline_by_area_TB_Pinellas <- timeline_interm %>% 
+          complete(location=all.counties, Date=date.seq) %>%
+          group_by(location, Date) %>% 
+          summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+          filter(location %in% c("TampaBay")) %>%
+          ungroup()
+        
+        
+        
+        
+        
+        ## Creating extra rows for Tampa, Clearwater, StPete based on TampaBay & Pinellas tweets
+        timeline_by_metro_TB_Pinellas <- NULL
+        if (nrow(timeline_by_area_TB_Pinellas)>0){
+          for (j in 1:nrow(timeline_by_area_TB_Pinellas)){
+            cur.row <- timeline_by_area_TB_Pinellas[j,]
+            if (cur.row$location == "TampaBay"){
+              timeline_by_metro_TB_Pinellas <- rbind(timeline_by_metro_TB_Pinellas, 
+                                                     tibble(location=c("Hillsborough", "Pinellas"), 
+                                                            Date=c(cur.row$Date,cur.row$Date), 
+                                                            tweet.count=TB.Pinellas.credit.df$TB.credit[all.counties %in% c("Hillsborough", "Pinellas")]*cur.row$tweet.count))
+            }                                               
+          }
+        }
+        
+        
+        ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+        timeline_by_metro_ALL_INCLUDED <- rbind(timeline_by_metro,
+                                                timeline_by_metro_TB_Pinellas) %>%
+          group_by(location, Date) %>%
+          summarise(tweet.count = sum(tweet.count))
+        
+        
+        colnames(timeline_by_metro_ALL_INCLUDED)[colnames(timeline_by_metro_ALL_INCLUDED) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+        
+        
+        model.df <- model.df %>%
+          left_join(timeline_by_metro_ALL_INCLUDED)
+        
+        
+      }
+      
+    }
+  }
+  
+  
+  
+  ## Making sure "NA" are treated as 0 (days with no tweet matches)
+  model.df <- model.df %>%
+    mutate_if(str_detect(colnames(model.df), "tweet.count"), function(x) ifelse(is.na(x),0,x))
+  
+  
+  
+  head(model.df)
+  dim(model.df)
+  
+  
+  
+  ### CONCURRENT BY-METRO correlations:
+  concur.corr <- round(model.df %>% select(-location, -Date) %>% cor(use="complete.obs") %>% .[1,],2) %>% .[c(2,3)]
+  
+  
+  ## POST-FACTUM BY-METRO correlations (correlation of tweets with PREVIOUS TIME PERIOD's Deadfish Levels data)
+  postfactum.corr <- model.df %>%
+    group_by(location) %>%
+    mutate(mean.deadfish_num.lag = lag(mean.deadfish_num, n=1)) %>%
+    ungroup() %>%
+    select(-location, -Date) %>%
+    cor(use="complete.obs") %>% .[,"mean.deadfish_num.lag"] %>% round(2) %>% .[c(2,3)]
+  
+  
+  ## ANTICIPATORY BY-METRO correlations (correlation of tweets with NEXT TIME PERIOD's Deadfish Levels data)
+  anticip.corr <- model.df %>%
+    group_by(location) %>%
+    mutate(mean.deadfish_num.lead= lead(mean.deadfish_num, n=1)) %>%
+    ungroup() %>%
+    select(-location, -Date) %>%
+    cor(use="complete.obs") %>% .[,"mean.deadfish_num.lead"] %>% round(2) %>% .[c(2,3)]
+  
 }
 
 
 if (locality.lvl == "Total"){
   date.from <- as.Date("2018-05-01")
   date.to <- as.Date("2019-05-01")
-
+  
   timeline_overall <- our_metro_df %>%
     filter(created_at >= date.from & created_at <= date.to) %>%
     mutate(created_at = floor_date(created_at,  unit="1 day"))
@@ -1437,6 +1447,10 @@ if (locality.lvl == "Total"){
   full.df <- read_csv(twitter.data.file,
                       col_types = cols())
   
+  
+  full.df$created_at <- as.Date(full.df$created_at)
+  
+  
   #################
   ### Creating the MODELING DATA FRAME, piece-by-piece
   ##  First, initializing it with beach conditions data, 
@@ -1451,109 +1465,109 @@ if (locality.lvl == "Total"){
   
   if (metric == "Count"){
     
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-    }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
-    
-    timeline <- timeline_interm %>% 
-      complete(Date = date.seq) %>%
-      group_by(Date) %>% 
-      summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
-                                     sum(geo_weight, na.rm=T),
-                                     n_distinct(id_str, na.rm=T))) %>%
-      ungroup()
-    
-    
-    ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
-    timeline_ALL_INCLUDED <- timeline %>%
-      group_by(Date) %>%
-      summarise(tweet.count = sum(tweet.count)) %>%
-      ungroup()
-    
-    colnames(timeline)[colnames(timeline) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    model.df <- model.df %>%
-      left_join(timeline)
-  
-  }
-  }
-  
-    if (metric == "Sentiment"){
-  
-  for (tweet.type in tweet.types){
-    if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
-    if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
-    if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
-    
-    ## If ONLY NEGATIVE ones needed
-    if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
-    if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
-    dim(our.df)
-    
-    ## ONLY CITIZENS??
-    if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
-    
-    #####
-    ## Sentiment sum
-    #####
-    
-    timeline <- our.df %>% filter(!is.na(created_at)) %>% 
-      mutate(Date = floor_date(created_at, unit=time.window)) %>%
-      complete(Date) %>%
-      group_by( Date) %>% 
-      summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-      ungroup()
-    
-    
-    timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
-      mutate(created_at = floor_date(created_at, unit="1 day"))
-    
-    new.dates <- NULL
-    for (j in 1:length(timeline_interm$created_at)){
-      new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
-    }
-    new.dates <- as.Date(new.dates)
-    timeline_interm$Date <- new.dates
-    
-    timeline <- timeline_interm %>% 
-      complete(Date = date.seq) %>%
-      group_by(Date) %>% 
-      summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
-      ungroup()
-    
-    colnames(timeline)[colnames(timeline) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
-    
-    model.df <- model.df %>%
-      left_join(timeline)
-    
-  }
+    for (tweet.type in tweet.types){
+      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+      
+      ## If ONLY NEGATIVE ones needed
+      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+      dim(our.df)
+      
+      ## ONLY CITIZENS??
+      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+      
+      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+        mutate(created_at = floor_date(created_at, unit="1 day"))
+      
+      new.dates <- NULL
+      for (j in 1:length(timeline_interm$created_at)){
+        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+      }
+      new.dates <- as.Date(new.dates)
+      timeline_interm$Date <- new.dates
+      
+      timeline <- timeline_interm %>% 
+        complete(Date = date.seq) %>%
+        group_by(Date) %>% 
+        summarise(tweet.count = ifelse(tweet.type=="weighted.geo", 
+                                       sum(geo_weight, na.rm=T),
+                                       n_distinct(id_str, na.rm=T))) %>%
+        ungroup()
+      
+      
+      ## Combining the extra credit due to TB/Pinellas, with the initial timeline by metro
+      timeline_ALL_INCLUDED <- timeline %>%
+        group_by(Date) %>%
+        summarise(tweet.count = sum(tweet.count)) %>%
+        ungroup()
+      
+      colnames(timeline)[colnames(timeline) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+      
+      model.df <- model.df %>%
+        left_join(timeline)
       
     }
+  }
+  
+  if (metric == "Sentiment"){
+    
+    for (tweet.type in tweet.types){
+      if (tweet.type == "places") our.df <- full.df %>% filter(places_match) 
+      if (tweet.type == "geoprofile") our.df <- full.df %>% filter(geoprofile_match) 
+      if (tweet.type %in% c("geo","weighted.geo")) our.df <- full.df %>% filter(places_match | geoprofile_match) 
+      
+      ## If ONLY NEGATIVE ones needed
+      if (tweet.sentiment == "negative") our.df <- our.df %>% filter(total_sentiment <= neg.threshold)
+      if (tweet.sentiment == "positive") our.df <- our.df %>% filter(total_sentiment > 0)
+      dim(our.df)
+      
+      ## ONLY CITIZENS??
+      if (exists("source.type")) {if (!is.null(source.type)) our.df <- our.df %>% filter(source %in% source.type)}
+      
+      #####
+      ## Sentiment sum
+      #####
+      
+      timeline <- our.df %>% filter(!is.na(created_at)) %>% 
+        mutate(Date = floor_date(created_at, unit=time.window)) %>%
+        complete(Date) %>%
+        group_by( Date) %>% 
+        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+        ungroup()
+      
+      
+      timeline_interm <- our.df %>% filter(!is.na(created_at), created_at >= date.from, created_at <= date.to) %>%
+        mutate(created_at = floor_date(created_at, unit="1 day"))
+      
+      new.dates <- NULL
+      for (j in 1:length(timeline_interm$created_at)){
+        new.dates <- c(new.dates, as.character(date.seq[which.min(abs(date.seq - as.Date(timeline_interm$created_at)[j]))]))
+      }
+      new.dates <- as.Date(new.dates)
+      timeline_interm$Date <- new.dates
+      
+      timeline <- timeline_interm %>% 
+        complete(Date = date.seq) %>%
+        group_by(Date) %>% 
+        summarise(tweet.count = ifelse(sum(total_sentiment, na.rm=T) == "NaN", 0, sum(total_sentiment, na.rm=T))) %>%
+        ungroup()
+      
+      colnames(timeline)[colnames(timeline) == "tweet.count"] <- paste0("tweet.count.", tweet.type)
+      
+      model.df <- model.df %>%
+        left_join(timeline)
+      
+    }
+    
+  }
   
   ## Making sure "NA" are treated as 0 (days with no tweet matches)
   model.df <- model.df %>%
     mutate_if(str_detect(colnames(model.df), "tweet.count"), function(x) ifelse(is.na(x),0,x))
   
-
+  
   ### CONCURRENT correlations:
   concur.corr <- round(cor(model.df %>% select(-Date))[1,],2) %>% .[c(2,3)]
   
@@ -1562,7 +1576,7 @@ if (locality.lvl == "Total"){
     mutate(mean.deadfish_num.lag = lag(mean.deadfish_num, n=1)) %>%
     select(-Date) %>%
     cor(use="complete.obs") %>% .[,"mean.deadfish_num.lag"] %>% round(2) %>% .[c(2,3)]
-
+  
   ## ANTICIPATORY correlations (correlation of tweets with NEXT TIME PERIOD's Deadfish Levels data)
   anticip.corr <- model.df %>%
     mutate(mean.deadfish_num.lead= lead(mean.deadfish_num, n=1)) %>%
